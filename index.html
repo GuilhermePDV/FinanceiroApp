@@ -1,0 +1,1981 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor Financeiro Pessoal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, where, orderBy } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        
+        // Configuração do Firebase (SUBSTITUA PELOS SEUS DADOS)
+        const firebaseConfig = {
+            apiKey: "SUA_API_KEY_AQUI",
+            authDomain: "SEU_PROJECT_ID.firebaseapp.com",
+            projectId: "SEU_PROJECT_ID",
+            storageBucket: "SEU_PROJECT_ID.appspot.com",
+            messagingSenderId: "SEU_SENDER_ID",
+            appId: "SEU_APP_ID"
+        };
+
+        // Inicializar Firebase
+        let app, db, auth;
+        let firebaseEnabled = false;
+        
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            firebaseEnabled = true;
+            
+            // Disponibilizar globalmente
+            window.firebaseApp = app;
+            window.firebaseDb = db;
+            window.firebaseAuth = auth;
+            window.firebaseModules = {
+                collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, where, orderBy,
+                signInAnonymously, onAuthStateChanged
+            };
+            
+            console.log('✅ Firebase inicializado com sucesso!');
+        } catch (error) {
+            console.log('⚠️ Firebase não configurado, usando dados locais:', error.message);
+            firebaseEnabled = false;
+        }
+        
+        window.firebaseEnabled = firebaseEnabled;
+    </script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Loading spinner */
+        .loading-spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Firebase status indicator */
+        .firebase-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .firebase-online {
+            background-color: #10b981;
+            color: white;
+        }
+        .firebase-offline {
+            background-color: #f59e0b;
+            color: white;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <!-- Firebase Status Indicator -->
+    <div id="firebaseStatus" class="firebase-status firebase-offline">
+        <span id="firebaseStatusText">🔄 Conectando...</span>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-white shadow-lg border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center py-4">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+                        <span class="text-white font-bold text-lg">💰</span>
+                    </div>
+                    <h1 class="text-2xl font-bold text-gray-900">Gestor Financeiro</h1>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <select id="userSelect" class="bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="user1">Usuário 1</option>
+                        <option value="user2">Usuário 2</option>
+                        <option value="combined">Visão Combinada</option>
+                    </select>
+                    
+                    <button id="addAccountBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center space-x-2">
+                        <span id="addAccountSpinner" class="loading-spinner hidden"></span>
+                        <span>+ Nova Conta</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Dashboard Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
+            <div class="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">Saldo Total</p>
+                        <p id="totalBalance" class="text-2xl font-bold text-gray-900">R$ 0,00</p>
+                    </div>
+                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                        <span class="text-green-600 text-xl">💳</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">Receitas do Mês</p>
+                        <p id="monthlyIncome" class="text-2xl font-bold text-green-600">R$ 0,00</p>
+                    </div>
+                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                        <span class="text-green-600 text-xl">📈</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">Despesas do Mês</p>
+                        <p id="monthlyExpenses" class="text-2xl font-bold text-red-600">R$ 0,00</p>
+                    </div>
+                    <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+                        <span class="text-red-600 text-xl">📉</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">Economia do Mês</p>
+                        <p id="monthlySavings" class="text-2xl font-bold text-blue-600">R$ 0,00</p>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <span class="text-blue-600 text-xl">💰</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="bills10thCard" class="bg-gradient-to-r from-orange-50 to-orange-100 rounded-xl shadow-md p-6 border border-orange-200 cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-105">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-orange-700">Contas Dia 10</p>
+                        <p id="bills10th" class="text-2xl font-bold text-orange-600">R$ 0,00</p>
+                        <p class="text-xs text-orange-600 mt-1">Clique para ver detalhes</p>
+                    </div>
+                    <div class="w-12 h-12 bg-orange-200 rounded-lg flex items-center justify-center">
+                        <span class="text-orange-600 text-xl">📅</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="bills20thCard" class="bg-gradient-to-r from-purple-50 to-purple-100 rounded-xl shadow-md p-6 border border-purple-200 cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-105">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-purple-700">Contas Dia 20</p>
+                        <p id="bills20th" class="text-2xl font-bold text-purple-600">R$ 0,00</p>
+                        <p class="text-xs text-purple-600 mt-1">Clique para ver detalhes</p>
+                    </div>
+                    <div class="w-12 h-12 bg-purple-200 rounded-lg flex items-center justify-center">
+                        <span class="text-purple-600 text-xl">📅</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Left Column - Accounts and Quick Actions -->
+            <div class="lg:col-span-1 space-y-6">
+                <!-- Accounts Section -->
+                <div class="bg-white rounded-xl shadow-md border border-gray-100">
+                    <div class="p-6 border-b border-gray-100">
+                        <h2 class="text-lg font-semibold text-gray-900">Minhas Contas</h2>
+                    </div>
+                    <div id="accountsList" class="p-6 space-y-4">
+                        <div class="flex items-center justify-center py-8">
+                            <div class="loading-spinner"></div>
+                            <span class="ml-2 text-gray-500">Carregando contas...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="bg-white rounded-xl shadow-md border border-gray-100">
+                    <div class="p-6 border-b border-gray-100">
+                        <h2 class="text-lg font-semibold text-gray-900">Ações Rápidas</h2>
+                    </div>
+                    <div class="p-6 space-y-3">
+                        <button id="addIncomeBtn" class="w-full bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2">
+                            <span>📈</span>
+                            <span>Adicionar Receita</span>
+                        </button>
+                        <button id="addExpenseBtn" class="w-full bg-red-600 hover:bg-red-700 text-white py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2">
+                            <span>📉</span>
+                            <span>Adicionar Despesa</span>
+                        </button>
+                        <button id="addRecurringBtn" class="w-full bg-orange-600 hover:bg-orange-700 text-white py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2">
+                            <span>🔄</span>
+                            <span>Despesa Fixa</span>
+                        </button>
+                        <button id="addInstallmentBtn" class="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2">
+                            <span>📊</span>
+                            <span>Parcelamento</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Fixed Bills Section -->
+                <div class="bg-white rounded-xl shadow-md border border-gray-100">
+                    <div class="p-6 border-b border-gray-100">
+                        <h2 class="text-lg font-semibold text-gray-900">Despesas Fixas</h2>
+                    </div>
+                    <div id="fixedBillsList" class="p-6 space-y-3">
+                        <div class="flex items-center justify-center py-4">
+                            <div class="loading-spinner"></div>
+                            <span class="ml-2 text-gray-500 text-sm">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column - Transactions and Chart -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Chart Section -->
+                <div class="bg-white rounded-xl shadow-md border border-gray-100">
+                    <div class="p-6 border-b border-gray-100">
+                        <h2 class="text-lg font-semibold text-gray-900">Visão Geral Mensal</h2>
+                    </div>
+                    <div class="p-6">
+                        <canvas id="financialChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+
+                <!-- Recent Transactions -->
+                <div class="bg-white rounded-xl shadow-md border border-gray-100">
+                    <div class="p-6 border-b border-gray-100 flex justify-between items-center">
+                        <h2 class="text-lg font-semibold text-gray-900">Transações Recentes</h2>
+                        <select id="filterAccount" class="bg-gray-50 border border-gray-300 rounded-lg px-3 py-1 text-sm">
+                            <option value="all">Todas as Contas</option>
+                        </select>
+                    </div>
+                    <div id="transactionsList" class="divide-y divide-gray-100">
+                        <div class="flex items-center justify-center py-8">
+                            <div class="loading-spinner"></div>
+                            <span class="ml-2 text-gray-500">Carregando transações...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Adding Account -->
+    <div id="accountModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-100">
+                <h3 class="text-lg font-semibold text-gray-900">Nova Conta</h3>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Nome da Conta</label>
+                    <input id="accountName" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: Cartão Nubank">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Tipo</label>
+                    <select id="accountType" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="checking">Conta Corrente</option>
+                        <option value="savings">Poupança</option>
+                        <option value="credit">Cartão de Crédito</option>
+                        <option value="investment">Investimento</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Saldo Inicial</label>
+                    <input id="accountBalance" type="number" step="0.01" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="0.00">
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-100 flex space-x-3">
+                <button id="cancelAccountBtn" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-2 px-4 rounded-lg font-medium transition-colors">Cancelar</button>
+                <button id="saveAccountBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2">
+                    <span id="saveAccountSpinner" class="loading-spinner hidden"></span>
+                    <span>Salvar</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Adding Transaction -->
+    <div id="transactionModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-100">
+                <h3 id="transactionModalTitle" class="text-lg font-semibold text-gray-900">Nova Transação</h3>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Descrição</label>
+                    <input id="transactionDescription" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: Salário, Supermercado...">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Valor</label>
+                    <input id="transactionAmount" type="number" step="0.01" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="0.00">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Conta</label>
+                    <select id="transactionAccount" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Categoria</label>
+                    <select id="transactionCategory" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <!-- Categories will be populated based on transaction type -->
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Data</label>
+                    <input id="transactionDate" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-100 flex space-x-3">
+                <button id="cancelTransactionBtn" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-2 px-4 rounded-lg font-medium transition-colors">Cancelar</button>
+                <button id="saveTransactionBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2">
+                    <span id="saveTransactionSpinner" class="loading-spinner hidden"></span>
+                    <span>Salvar</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Adding Recurring Bill -->
+    <div id="recurringModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-100">
+                <h3 class="text-lg font-semibold text-gray-900">Nova Despesa Fixa</h3>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Nome da Conta</label>
+                    <input id="recurringDescription" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500" placeholder="Ex: Aluguel, Internet, Luz...">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Valor</label>
+                    <input id="recurringAmount" type="number" step="0.01" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500" placeholder="0.00">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Conta para Débito</label>
+                    <select id="recurringAccount" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500">
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Dia do Vencimento</label>
+                    <select id="recurringDay" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500">
+                        <option value="10">Dia 10</option>
+                        <option value="20">Dia 20</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Categoria</label>
+                    <select id="recurringCategory" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500">
+                        <option value="Moradia">Moradia</option>
+                        <option value="Alimentação">Alimentação</option>
+                        <option value="Transporte">Transporte</option>
+                        <option value="Saúde">Saúde</option>
+                        <option value="Educação">Educação</option>
+                        <option value="Entretenimento">Entretenimento</option>
+                        <option value="Outros">Outros</option>
+                    </select>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-100 flex space-x-3">
+                <button id="cancelRecurringBtn" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-2 px-4 rounded-lg font-medium transition-colors">Cancelar</button>
+                <button id="saveRecurringBtn" class="flex-1 bg-orange-600 hover:bg-orange-700 text-white py-2 px-4 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2">
+                    <span id="saveRecurringSpinner" class="loading-spinner hidden"></span>
+                    <span>Salvar</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Bills Details -->
+    <div id="billsDetailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
+            <div class="p-6 border-b border-gray-100 flex justify-between items-center">
+                <h3 id="billsDetailTitle" class="text-lg font-semibold text-gray-900">Extrato - Contas do Dia</h3>
+                <button id="closeBillsDetailBtn" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+            </div>
+            <div class="p-6 overflow-y-auto max-h-[60vh]">
+                <div id="billsDetailContent" class="space-y-4">
+                    <!-- Bills details will be populated here -->
+                </div>
+                <div id="billsDetailEmpty" class="text-center text-gray-500 py-8 hidden">
+                    <span class="text-4xl mb-4 block">📋</span>
+                    <p>Nenhuma conta encontrada para este dia.</p>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-100 bg-gray-50">
+                <div class="flex justify-between items-center">
+                    <span class="text-sm text-gray-600">Total de contas:</span>
+                    <span id="billsDetailTotal" class="text-lg font-bold text-red-600">R$ 0,00</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Adding Installment -->
+    <div id="installmentModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-100">
+                <h3 class="text-lg font-semibold text-gray-900">Novo Parcelamento</h3>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Descrição da Compra</label>
+                    <input id="installmentDescription" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Ex: Notebook, Geladeira...">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Valor Total</label>
+                        <input id="installmentTotalAmount" type="number" step="0.01" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="0.00">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Parcelas</label>
+                        <input id="installmentCount" type="number" min="2" max="60" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="12">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Conta para Débito</label>
+                    <select id="installmentAccount" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Dia do Vencimento</label>
+                    <select id="installmentDay" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        <option value="10">Dia 10</option>
+                        <option value="20">Dia 20</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Primeira Parcela</label>
+                    <input id="installmentStartDate" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Categoria</label>
+                    <select id="installmentCategory" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        <option value="Compras">Compras</option>
+                        <option value="Eletrônicos">Eletrônicos</option>
+                        <option value="Móveis">Móveis</option>
+                        <option value="Educação">Educação</option>
+                        <option value="Saúde">Saúde</option>
+                        <option value="Outros">Outros</option>
+                    </select>
+                </div>
+                <div class="bg-purple-50 p-4 rounded-lg">
+                    <p class="text-sm text-purple-700">
+                        <strong>Valor da parcela:</strong> <span id="installmentPreview">R$ 0,00</span>
+                    </p>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-100 flex space-x-3">
+                <button id="cancelInstallmentBtn" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-2 px-4 rounded-lg font-medium transition-colors">Cancelar</button>
+                <button id="saveInstallmentBtn" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 px-4 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2">
+                    <span id="saveInstallmentSpinner" class="loading-spinner hidden"></span>
+                    <span>Salvar</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== FIREBASE DATABASE MANAGER =====
+        class FirebaseManager {
+            constructor() {
+                this.isOnline = false;
+                this.userId = null;
+                this.initializeAuth();
+            }
+
+            async initializeAuth() {
+                if (!window.firebaseEnabled) {
+                    this.updateStatus(false, 'Firebase não configurado - usando dados locais');
+                    return;
+                }
+
+                try {
+                    const { signInAnonymously, onAuthStateChanged } = window.firebaseModules;
+                    
+                    // Sign in anonymously
+                    await signInAnonymously(window.firebaseAuth);
+                    
+                    // Listen for auth state changes
+                    onAuthStateChanged(window.firebaseAuth, (user) => {
+                        if (user) {
+                            this.userId = user.uid;
+                            this.isOnline = true;
+                            this.updateStatus(true, 'Conectado ao Firebase');
+                            console.log('✅ Usuário autenticado:', user.uid);
+                            
+                            // Load data after authentication
+                            setTimeout(() => {
+                                loadAllData();
+                            }, 500);
+                        } else {
+                            this.isOnline = false;
+                            this.updateStatus(false, 'Desconectado');
+                        }
+                    });
+                } catch (error) {
+                    console.error('Erro na autenticação:', error);
+                    this.updateStatus(false, 'Erro de conexão - usando dados locais');
+                }
+            }
+
+            updateStatus(online, message) {
+                const statusElement = document.getElementById('firebaseStatus');
+                const statusText = document.getElementById('firebaseStatusText');
+                
+                if (online) {
+                    statusElement.className = 'firebase-status firebase-online';
+                    statusText.textContent = `🟢 ${message}`;
+                } else {
+                    statusElement.className = 'firebase-status firebase-offline';
+                    statusText.textContent = `🟡 ${message}`;
+                }
+            }
+
+            // Save data to Firebase
+            async saveData(collection, data, userId = null) {
+                if (!this.isOnline) return null;
+
+                try {
+                    const { addDoc, collection: fbCollection } = window.firebaseModules;
+                    const dataToSave = {
+                        ...data,
+                        userId: userId || currentUser,
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    };
+                    
+                    const docRef = await addDoc(fbCollection(window.firebaseDb, collection), dataToSave);
+                    console.log(`✅ Dados salvos em ${collection}:`, docRef.id);
+                    return docRef.id;
+                } catch (error) {
+                    console.error(`Erro ao salvar em ${collection}:`, error);
+                    return null;
+                }
+            }
+
+            // Load data from Firebase
+            async loadData(collection, userId = null) {
+                if (!this.isOnline) return [];
+
+                try {
+                    const { getDocs, collection: fbCollection, query, where } = window.firebaseModules;
+                    const q = query(
+                        fbCollection(window.firebaseDb, collection),
+                        where('userId', '==', userId || currentUser)
+                    );
+                    
+                    const querySnapshot = await getDocs(q);
+                    const data = [];
+                    querySnapshot.forEach((doc) => {
+                        data.push({
+                            id: doc.id,
+                            ...doc.data()
+                        });
+                    });
+                    
+                    console.log(`✅ Dados carregados de ${collection}:`, data.length, 'itens');
+                    return data;
+                } catch (error) {
+                    console.error(`Erro ao carregar ${collection}:`, error);
+                    return [];
+                }
+            }
+
+            // Update data in Firebase
+            async updateData(collection, docId, data) {
+                if (!this.isOnline) return false;
+
+                try {
+                    const { updateDoc, doc } = window.firebaseModules;
+                    const docRef = doc(window.firebaseDb, collection, docId);
+                    await updateDoc(docRef, {
+                        ...data,
+                        updatedAt: new Date().toISOString()
+                    });
+                    console.log(`✅ Dados atualizados em ${collection}:`, docId);
+                    return true;
+                } catch (error) {
+                    console.error(`Erro ao atualizar ${collection}:`, error);
+                    return false;
+                }
+            }
+
+            // Delete data from Firebase
+            async deleteData(collection, docId) {
+                if (!this.isOnline) return false;
+
+                try {
+                    const { deleteDoc, doc } = window.firebaseModules;
+                    const docRef = doc(window.firebaseDb, collection, docId);
+                    await deleteDoc(docRef);
+                    console.log(`✅ Dados excluídos de ${collection}:`, docId);
+                    return true;
+                } catch (error) {
+                    console.error(`Erro ao excluir ${collection}:`, error);
+                    return false;
+                }
+            }
+        }
+
+        // Initialize Firebase Manager
+        const firebaseManager = new FirebaseManager();
+
+        // ===== DATA STRUCTURE =====
+        // Data structure to store all financial data (fallback for offline mode)
+        let financialData = {
+            user1: {
+                accounts: [],
+                transactions: [],
+                recurringBills: [],
+                installments: []
+            },
+            user2: {
+                accounts: [],
+                transactions: [],
+                recurringBills: [],
+                installments: []
+            }
+        };
+
+        let currentUser = 'user1';
+        let currentTransactionType = 'income';
+        let chart = null;
+
+        // Categories for different transaction types
+        const categories = {
+            income: ['Salário', 'Freelance', 'Investimentos', 'Vendas', 'Outros'],
+            expense: ['Alimentação', 'Transporte', 'Moradia', 'Saúde', 'Educação', 'Entretenimento', 'Compras', 'Outros']
+        };
+
+        // ===== DATA LOADING FUNCTIONS =====
+        async function loadAllData() {
+            if (firebaseManager.isOnline) {
+                await loadDataFromFirebase();
+            } else {
+                loadSampleData();
+            }
+            updateUI();
+            initChart();
+        }
+
+        async function loadDataFromFirebase() {
+            try {
+                // Load data for both users
+                for (const user of ['user1', 'user2']) {
+                    const [accounts, transactions, recurringBills, installments] = await Promise.all([
+                        firebaseManager.loadData('accounts', user),
+                        firebaseManager.loadData('transactions', user),
+                        firebaseManager.loadData('recurringBills', user),
+                        firebaseManager.loadData('installments', user)
+                    ]);
+
+                    financialData[user] = {
+                        accounts: accounts || [],
+                        transactions: transactions || [],
+                        recurringBills: recurringBills || [],
+                        installments: installments || []
+                    };
+                }
+                
+                console.log('✅ Todos os dados carregados do Firebase');
+            } catch (error) {
+                console.error('Erro ao carregar dados do Firebase:', error);
+                loadSampleData(); // Fallback to sample data
+            }
+        }
+
+        // Load some sample data for demonstration (offline mode)
+        function loadSampleData() {
+            console.log('📝 Carregando dados de exemplo (modo offline)');
+            
+            // User 1 sample data
+            financialData.user1.accounts = [
+                { id: 1, name: 'Conta Corrente', type: 'checking', balance: 2500.00 },
+                { id: 2, name: 'Cartão Nubank', type: 'credit', balance: -850.00 },
+                { id: 3, name: 'Poupança', type: 'savings', balance: 5000.00 }
+            ];
+
+            financialData.user1.transactions = [
+                { id: 1, description: 'Salário', amount: 4500.00, type: 'income', accountId: 1, category: 'Salário', date: '2024-01-15' },
+                { id: 2, description: 'Supermercado', amount: -320.50, type: 'expense', accountId: 2, category: 'Alimentação', date: '2024-01-14' },
+                { id: 3, description: 'Freelance', amount: 800.00, type: 'income', accountId: 1, category: 'Freelance', date: '2024-01-13' }
+            ];
+
+            financialData.user1.recurringBills = [
+                { id: 1, description: 'Aluguel', amount: 1200.00, accountId: 1, day: 10, category: 'Moradia', active: true },
+                { id: 2, description: 'Internet', amount: 89.90, accountId: 2, day: 20, category: 'Outros', active: true }
+            ];
+
+            financialData.user1.installments = [
+                { id: 1, description: 'Notebook Dell', totalAmount: 2400.00, installmentAmount: 200.00, totalInstallments: 12, remainingInstallments: 8, accountId: 2, day: 10, category: 'Eletrônicos', startDate: '2023-06-10', active: true }
+            ];
+
+            // User 2 sample data
+            financialData.user2.accounts = [
+                { id: 1, name: 'Conta Principal', type: 'checking', balance: 1800.00 },
+                { id: 2, name: 'Cartão Itaú', type: 'credit', balance: -450.00 }
+            ];
+
+            financialData.user2.transactions = [
+                { id: 1, description: 'Salário', amount: 3200.00, type: 'income', accountId: 1, category: 'Salário', date: '2024-01-15' },
+                { id: 2, description: 'Combustível', amount: -180.00, type: 'expense', accountId: 2, category: 'Transporte', date: '2024-01-14' }
+            ];
+
+            financialData.user2.recurringBills = [
+                { id: 1, description: 'Plano de Saúde', amount: 350.00, accountId: 1, day: 10, category: 'Saúde', active: true }
+            ];
+
+            financialData.user2.installments = [];
+        }
+
+        // ===== INITIALIZATION =====
+        function init() {
+            setupEventListeners();
+            
+            // Set today's date as default
+            document.getElementById('transactionDate').value = new Date().toISOString().split('T')[0];
+            
+            // Wait for Firebase to initialize
+            setTimeout(() => {
+                if (!firebaseManager.isOnline) {
+                    loadAllData();
+                }
+            }, 1000);
+        }
+
+        // ===== EVENT LISTENERS =====
+        function setupEventListeners() {
+            document.getElementById('userSelect').addEventListener('change', (e) => {
+                currentUser = e.target.value;
+                updateUI();
+            });
+
+            document.getElementById('addAccountBtn').addEventListener('click', () => {
+                if (currentUser === 'combined') {
+                    alert('Selecione um usuário específico para adicionar contas.');
+                    return;
+                }
+                showAccountModal();
+            });
+
+            document.getElementById('addIncomeBtn').addEventListener('click', () => {
+                if (currentUser === 'combined') {
+                    alert('Selecione um usuário específico para adicionar transações.');
+                    return;
+                }
+                currentTransactionType = 'income';
+                showTransactionModal();
+            });
+
+            document.getElementById('addExpenseBtn').addEventListener('click', () => {
+                if (currentUser === 'combined') {
+                    alert('Selecione um usuário específico para adicionar transações.');
+                    return;
+                }
+                currentTransactionType = 'expense';
+                showTransactionModal();
+            });
+
+            document.getElementById('addRecurringBtn').addEventListener('click', () => {
+                if (currentUser === 'combined') {
+                    alert('Selecione um usuário específico para adicionar despesas fixas.');
+                    return;
+                }
+                showRecurringModal();
+            });
+
+            document.getElementById('addInstallmentBtn').addEventListener('click', () => {
+                if (currentUser === 'combined') {
+                    alert('Selecione um usuário específico para adicionar parcelamentos.');
+                    return;
+                }
+                showInstallmentModal();
+            });
+
+            document.getElementById('cancelAccountBtn').addEventListener('click', hideAccountModal);
+            document.getElementById('saveAccountBtn').addEventListener('click', saveAccount);
+
+            document.getElementById('cancelTransactionBtn').addEventListener('click', hideTransactionModal);
+            document.getElementById('saveTransactionBtn').addEventListener('click', saveTransaction);
+
+            document.getElementById('cancelRecurringBtn').addEventListener('click', hideRecurringModal);
+            document.getElementById('saveRecurringBtn').addEventListener('click', saveRecurringBill);
+
+            document.getElementById('cancelInstallmentBtn').addEventListener('click', hideInstallmentModal);
+            document.getElementById('saveInstallmentBtn').addEventListener('click', saveInstallment);
+
+            document.getElementById('filterAccount').addEventListener('change', updateTransactionsList);
+
+            // Bills detail modal events
+            document.getElementById('bills10thCard').addEventListener('click', () => showBillsDetail(10));
+            document.getElementById('bills20thCard').addEventListener('click', () => showBillsDetail(20));
+            document.getElementById('closeBillsDetailBtn').addEventListener('click', hideBillsDetailModal);
+
+            // Add event listeners for installment calculation
+            document.getElementById('installmentTotalAmount').addEventListener('input', updateInstallmentPreview);
+            document.getElementById('installmentCount').addEventListener('input', updateInstallmentPreview);
+        }
+
+        // ===== MODAL FUNCTIONS =====
+        function showAccountModal() {
+            document.getElementById('accountModal').classList.remove('hidden');
+            document.getElementById('accountModal').classList.add('flex');
+            document.getElementById('accountName').value = '';
+            document.getElementById('accountType').value = 'checking';
+            document.getElementById('accountBalance').value = '';
+        }
+
+        function hideAccountModal() {
+            document.getElementById('accountModal').classList.add('hidden');
+            document.getElementById('accountModal').classList.remove('flex');
+        }
+
+        async function saveAccount() {
+            const name = document.getElementById('accountName').value.trim();
+            const type = document.getElementById('accountType').value;
+            const balance = parseFloat(document.getElementById('accountBalance').value) || 0;
+
+            if (!name) {
+                alert('Por favor, insira o nome da conta.');
+                return;
+            }
+
+            // Show loading
+            const spinner = document.getElementById('saveAccountSpinner');
+            const button = document.getElementById('saveAccountBtn');
+            spinner.classList.remove('hidden');
+            button.disabled = true;
+
+            const newAccount = {
+                id: Date.now(),
+                name,
+                type,
+                balance
+            };
+
+            // Save to Firebase if online
+            if (firebaseManager.isOnline) {
+                const firebaseId = await firebaseManager.saveData('accounts', newAccount);
+                if (firebaseId) {
+                    newAccount.firebaseId = firebaseId;
+                }
+            }
+
+            financialData[currentUser].accounts.push(newAccount);
+            
+            // Hide loading
+            spinner.classList.add('hidden');
+            button.disabled = false;
+            
+            hideAccountModal();
+            updateUI();
+        }
+
+        function showTransactionModal() {
+            document.getElementById('transactionModal').classList.remove('hidden');
+            document.getElementById('transactionModal').classList.add('flex');
+            
+            const title = currentTransactionType === 'income' ? 'Nova Receita' : 'Nova Despesa';
+            document.getElementById('transactionModalTitle').textContent = title;
+            
+            // Populate accounts dropdown
+            const accountSelect = document.getElementById('transactionAccount');
+            accountSelect.innerHTML = '';
+            financialData[currentUser].accounts.forEach(account => {
+                const option = document.createElement('option');
+                option.value = account.id;
+                option.textContent = account.name;
+                accountSelect.appendChild(option);
+            });
+
+            // Populate categories dropdown
+            const categorySelect = document.getElementById('transactionCategory');
+            categorySelect.innerHTML = '';
+            categories[currentTransactionType].forEach(category => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.textContent = category;
+                categorySelect.appendChild(option);
+            });
+
+            // Clear form
+            document.getElementById('transactionDescription').value = '';
+            document.getElementById('transactionAmount').value = '';
+        }
+
+        function hideTransactionModal() {
+            document.getElementById('transactionModal').classList.add('hidden');
+            document.getElementById('transactionModal').classList.remove('flex');
+        }
+
+        async function saveTransaction() {
+            const description = document.getElementById('transactionDescription').value.trim();
+            const amount = parseFloat(document.getElementById('transactionAmount').value);
+            const accountId = parseInt(document.getElementById('transactionAccount').value);
+            const category = document.getElementById('transactionCategory').value;
+            const date = document.getElementById('transactionDate').value;
+
+            if (!description || !amount || !accountId || !category || !date) {
+                alert('Por favor, preencha todos os campos.');
+                return;
+            }
+
+            // Show loading
+            const spinner = document.getElementById('saveTransactionSpinner');
+            const button = document.getElementById('saveTransactionBtn');
+            spinner.classList.remove('hidden');
+            button.disabled = true;
+
+            const transactionAmount = currentTransactionType === 'expense' ? -Math.abs(amount) : Math.abs(amount);
+
+            const newTransaction = {
+                id: Date.now(),
+                description,
+                amount: transactionAmount,
+                type: currentTransactionType,
+                accountId,
+                category,
+                date
+            };
+
+            // Save to Firebase if online
+            if (firebaseManager.isOnline) {
+                const firebaseId = await firebaseManager.saveData('transactions', newTransaction);
+                if (firebaseId) {
+                    newTransaction.firebaseId = firebaseId;
+                }
+            }
+
+            financialData[currentUser].transactions.push(newTransaction);
+            
+            // Update account balance
+            const account = financialData[currentUser].accounts.find(acc => acc.id === accountId);
+            if (account) {
+                account.balance += transactionAmount;
+                
+                // Update account in Firebase if online
+                if (firebaseManager.isOnline && account.firebaseId) {
+                    await firebaseManager.updateData('accounts', account.firebaseId, { balance: account.balance });
+                }
+            }
+
+            // Hide loading
+            spinner.classList.add('hidden');
+            button.disabled = false;
+
+            hideTransactionModal();
+            updateUI();
+        }
+
+        function showRecurringModal() {
+            document.getElementById('recurringModal').classList.remove('hidden');
+            document.getElementById('recurringModal').classList.add('flex');
+            
+            // Populate accounts dropdown
+            const accountSelect = document.getElementById('recurringAccount');
+            accountSelect.innerHTML = '';
+            financialData[currentUser].accounts.forEach(account => {
+                const option = document.createElement('option');
+                option.value = account.id;
+                option.textContent = account.name;
+                accountSelect.appendChild(option);
+            });
+
+            // Clear form
+            document.getElementById('recurringDescription').value = '';
+            document.getElementById('recurringAmount').value = '';
+            document.getElementById('recurringDay').value = '10';
+            document.getElementById('recurringCategory').value = 'Moradia';
+        }
+
+        function hideRecurringModal() {
+            document.getElementById('recurringModal').classList.add('hidden');
+            document.getElementById('recurringModal').classList.remove('flex');
+        }
+
+        async function saveRecurringBill() {
+            const description = document.getElementById('recurringDescription').value.trim();
+            const amount = parseFloat(document.getElementById('recurringAmount').value);
+            const accountId = parseInt(document.getElementById('recurringAccount').value);
+            const day = parseInt(document.getElementById('recurringDay').value);
+            const category = document.getElementById('recurringCategory').value;
+
+            if (!description || !amount || !accountId) {
+                alert('Por favor, preencha todos os campos.');
+                return;
+            }
+
+            // Show loading
+            const spinner = document.getElementById('saveRecurringSpinner');
+            const button = document.getElementById('saveRecurringBtn');
+            spinner.classList.remove('hidden');
+            button.disabled = true;
+
+            const newRecurringBill = {
+                id: Date.now(),
+                description,
+                amount,
+                accountId,
+                day,
+                category,
+                active: true
+            };
+
+            // Save to Firebase if online
+            if (firebaseManager.isOnline) {
+                const firebaseId = await firebaseManager.saveData('recurringBills', newRecurringBill);
+                if (firebaseId) {
+                    newRecurringBill.firebaseId = firebaseId;
+                }
+            }
+
+            financialData[currentUser].recurringBills.push(newRecurringBill);
+            
+            // Automatically create transaction for current month
+            await createRecurringTransaction(newRecurringBill);
+            
+            // Hide loading
+            spinner.classList.add('hidden');
+            button.disabled = false;
+            
+            hideRecurringModal();
+            updateUI();
+        }
+
+        function showInstallmentModal() {
+            document.getElementById('installmentModal').classList.remove('hidden');
+            document.getElementById('installmentModal').classList.add('flex');
+            
+            // Populate accounts dropdown
+            const accountSelect = document.getElementById('installmentAccount');
+            accountSelect.innerHTML = '';
+            financialData[currentUser].accounts.forEach(account => {
+                const option = document.createElement('option');
+                option.value = account.id;
+                option.textContent = account.name;
+                accountSelect.appendChild(option);
+            });
+
+            // Set default start date to next month
+            const nextMonth = new Date();
+            nextMonth.setMonth(nextMonth.getMonth() + 1);
+            nextMonth.setDate(10);
+            document.getElementById('installmentStartDate').value = nextMonth.toISOString().split('T')[0];
+
+            // Clear form
+            document.getElementById('installmentDescription').value = '';
+            document.getElementById('installmentTotalAmount').value = '';
+            document.getElementById('installmentCount').value = '';
+            document.getElementById('installmentDay').value = '10';
+            document.getElementById('installmentCategory').value = 'Compras';
+            updateInstallmentPreview();
+        }
+
+        function hideInstallmentModal() {
+            document.getElementById('installmentModal').classList.add('hidden');
+            document.getElementById('installmentModal').classList.remove('flex');
+        }
+
+        function updateInstallmentPreview() {
+            const totalAmount = parseFloat(document.getElementById('installmentTotalAmount').value) || 0;
+            const installmentCount = parseInt(document.getElementById('installmentCount').value) || 1;
+            const installmentAmount = totalAmount / installmentCount;
+            
+            document.getElementById('installmentPreview').textContent = formatCurrency(installmentAmount);
+        }
+
+        async function saveInstallment() {
+            const description = document.getElementById('installmentDescription').value.trim();
+            const totalAmount = parseFloat(document.getElementById('installmentTotalAmount').value);
+            const installmentCount = parseInt(document.getElementById('installmentCount').value);
+            const accountId = parseInt(document.getElementById('installmentAccount').value);
+            const day = parseInt(document.getElementById('installmentDay').value);
+            const startDate = document.getElementById('installmentStartDate').value;
+            const category = document.getElementById('installmentCategory').value;
+
+            if (!description || !totalAmount || !installmentCount || !accountId || !startDate) {
+                alert('Por favor, preencha todos os campos.');
+                return;
+            }
+
+            // Show loading
+            const spinner = document.getElementById('saveInstallmentSpinner');
+            const button = document.getElementById('saveInstallmentBtn');
+            spinner.classList.remove('hidden');
+            button.disabled = true;
+
+            const installmentAmount = totalAmount / installmentCount;
+
+            const newInstallment = {
+                id: Date.now(),
+                description,
+                totalAmount,
+                installmentAmount,
+                totalInstallments: installmentCount,
+                remainingInstallments: installmentCount,
+                accountId,
+                day,
+                category,
+                startDate,
+                active: true
+            };
+
+            // Save to Firebase if online
+            if (firebaseManager.isOnline) {
+                const firebaseId = await firebaseManager.saveData('installments', newInstallment);
+                if (firebaseId) {
+                    newInstallment.firebaseId = firebaseId;
+                }
+            }
+
+            financialData[currentUser].installments.push(newInstallment);
+            
+            // Automatically create transactions for installments that should be paid
+            await createInstallmentTransactions(newInstallment);
+            
+            // Hide loading
+            spinner.classList.add('hidden');
+            button.disabled = false;
+            
+            hideInstallmentModal();
+            updateUI();
+        }
+
+        // ===== UI UPDATE FUNCTIONS =====
+        function updateUI() {
+            updateDashboardCards();
+            updateAccountsList();
+            updateTransactionsList();
+            updateChart();
+            updateFilterDropdown();
+            updateFixedBillsList();
+        }
+
+        function updateDashboardCards() {
+            let totalBalance = 0;
+            let monthlyIncome = 0;
+            let monthlyExpenses = 0;
+            let bills10th = 0;
+            let bills20th = 0;
+
+            const currentMonth = new Date().getMonth();
+            const currentYear = new Date().getFullYear();
+
+            if (currentUser === 'combined') {
+                // Combined view
+                ['user1', 'user2'].forEach(user => {
+                    financialData[user].accounts.forEach(account => {
+                        totalBalance += account.balance;
+                    });
+
+                    financialData[user].transactions.forEach(transaction => {
+                        const transactionDate = new Date(transaction.date);
+                        if (transactionDate.getMonth() === currentMonth && transactionDate.getFullYear() === currentYear) {
+                            if (transaction.type === 'income') {
+                                monthlyIncome += transaction.amount;
+                            } else {
+                                monthlyExpenses += Math.abs(transaction.amount);
+                            }
+                        }
+                    });
+
+                    // Calculate fixed bills
+                    financialData[user].recurringBills.forEach(bill => {
+                        if (bill.active) {
+                            if (bill.day === 10) {
+                                bills10th += bill.amount;
+                            } else if (bill.day === 20) {
+                                bills20th += bill.amount;
+                            }
+                        }
+                    });
+
+                    // Calculate installments
+                    financialData[user].installments.forEach(installment => {
+                        if (installment.active && installment.remainingInstallments > 0) {
+                            if (installment.day === 10) {
+                                bills10th += installment.installmentAmount;
+                            } else if (installment.day === 20) {
+                                bills20th += installment.installmentAmount;
+                            }
+                        }
+                    });
+                });
+            } else {
+                // Single user view
+                financialData[currentUser].accounts.forEach(account => {
+                    totalBalance += account.balance;
+                });
+
+                financialData[currentUser].transactions.forEach(transaction => {
+                    const transactionDate = new Date(transaction.date);
+                    if (transactionDate.getMonth() === currentMonth && transactionDate.getFullYear() === currentYear) {
+                        if (transaction.type === 'income') {
+                            monthlyIncome += transaction.amount;
+                        } else {
+                            monthlyExpenses += Math.abs(transaction.amount);
+                        }
+                    }
+                });
+
+                // Calculate fixed bills
+                financialData[currentUser].recurringBills.forEach(bill => {
+                    if (bill.active) {
+                        if (bill.day === 10) {
+                            bills10th += bill.amount;
+                        } else if (bill.day === 20) {
+                            bills20th += bill.amount;
+                        }
+                    }
+                });
+
+                // Calculate installments
+                financialData[currentUser].installments.forEach(installment => {
+                    if (installment.active && installment.remainingInstallments > 0) {
+                        if (installment.day === 10) {
+                            bills10th += installment.installmentAmount;
+                        } else if (installment.day === 20) {
+                            bills20th += installment.installmentAmount;
+                        }
+                    }
+                });
+            }
+
+            const monthlySavings = monthlyIncome - monthlyExpenses;
+
+            document.getElementById('totalBalance').textContent = formatCurrency(totalBalance);
+            document.getElementById('monthlyIncome').textContent = formatCurrency(monthlyIncome);
+            document.getElementById('monthlyExpenses').textContent = formatCurrency(monthlyExpenses);
+            document.getElementById('monthlySavings').textContent = formatCurrency(monthlySavings);
+            document.getElementById('bills10th').textContent = formatCurrency(bills10th);
+            document.getElementById('bills20th').textContent = formatCurrency(bills20th);
+        }
+
+        function updateAccountsList() {
+            const accountsList = document.getElementById('accountsList');
+            accountsList.innerHTML = '';
+
+            if (currentUser === 'combined') {
+                accountsList.innerHTML = '<p class="text-gray-500 text-center">Selecione um usuário específico para ver as contas.</p>';
+                return;
+            }
+
+            if (financialData[currentUser].accounts.length === 0) {
+                accountsList.innerHTML = '<p class="text-gray-500 text-center">Nenhuma conta cadastrada.</p>';
+                return;
+            }
+
+            financialData[currentUser].accounts.forEach(account => {
+                const accountElement = document.createElement('div');
+                accountElement.className = 'bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors';
+                
+                const typeIcons = {
+                    checking: '🏦',
+                    savings: '🐷',
+                    credit: '💳',
+                    investment: '📈'
+                };
+
+                accountElement.innerHTML = `
+                    <div class="flex items-center justify-between p-4">
+                        <div class="flex items-center space-x-3 flex-1">
+                            <span class="text-2xl">${typeIcons[account.type]}</span>
+                            <div class="flex-1">
+                                <p class="font-medium text-gray-900 cursor-pointer hover:text-blue-600 transition-colors" title="Clique para editar">${account.name}</p>
+                                <p class="text-sm text-gray-500">${getAccountTypeName(account.type)}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-3">
+                            <div class="text-right">
+                                <p class="font-semibold ${account.balance >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                    ${formatCurrency(account.balance)}
+                                </p>
+                            </div>
+                            <button class="text-red-500 hover:text-red-700 text-sm p-1 rounded hover:bg-red-50 transition-colors" title="Excluir conta">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // Add event listeners after creating the element
+                const nameElement = accountElement.querySelector('p[title="Clique para editar"]');
+                const deleteButton = accountElement.querySelector('button[title="Excluir conta"]');
+                
+                nameElement.addEventListener('click', () => editAccountName(account.id));
+                deleteButton.addEventListener('click', () => deleteAccount(account.id));
+                
+                accountsList.appendChild(accountElement);
+            });
+        }
+
+        function updateTransactionsList() {
+            const transactionsList = document.getElementById('transactionsList');
+            transactionsList.innerHTML = '';
+
+            let transactions = [];
+            
+            if (currentUser === 'combined') {
+                // Combined view
+                ['user1', 'user2'].forEach(user => {
+                    financialData[user].transactions.forEach(transaction => {
+                        transactions.push({
+                            ...transaction,
+                            user,
+                            accountName: financialData[user].accounts.find(acc => acc.id === transaction.accountId)?.name || 'Conta Desconhecida'
+                        });
+                    });
+                });
+            } else {
+                // Single user view
+                transactions = financialData[currentUser].transactions.map(transaction => ({
+                    ...transaction,
+                    user: currentUser,
+                    accountName: financialData[currentUser].accounts.find(acc => acc.id === transaction.accountId)?.name || 'Conta Desconhecida'
+                }));
+            }
+
+            // Filter by account if selected
+            const filterAccount = document.getElementById('filterAccount').value;
+            if (filterAccount !== 'all') {
+                transactions = transactions.filter(t => t.accountId === parseInt(filterAccount));
+            }
+
+            // Sort by date (newest first)
+            transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            // Take only the last 10 transactions
+            transactions = transactions.slice(0, 10);
+
+            if (transactions.length === 0) {
+                transactionsList.innerHTML = '<div class="p-6 text-center text-gray-500">Nenhuma transação encontrada.</div>';
+                return;
+            }
+
+            transactions.forEach(transaction => {
+                const transactionElement = document.createElement('div');
+                transactionElement.className = 'p-4 hover:bg-gray-50 transition-colors';
+                
+                const isIncome = transaction.type === 'income';
+                const amountClass = isIncome ? 'text-green-600' : 'text-red-600';
+                const icon = isIncome ? '📈' : '📉';
+
+                transactionElement.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <span class="text-xl">${icon}</span>
+                            <div>
+                                <p class="font-medium text-gray-900">${transaction.description}</p>
+                                <p class="text-sm text-gray-500">${transaction.accountName} • ${transaction.category}</p>
+                                ${currentUser === 'combined' ? `<p class="text-xs text-blue-600">Usuário ${transaction.user === 'user1' ? '1' : '2'}</p>` : ''}
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="font-semibold ${amountClass}">${formatCurrency(transaction.amount)}</p>
+                            <p class="text-sm text-gray-500">${formatDate(transaction.date)}</p>
+                        </div>
+                    </div>
+                `;
+                
+                transactionsList.appendChild(transactionElement);
+            });
+        }
+
+        function updateFilterDropdown() {
+            const filterSelect = document.getElementById('filterAccount');
+            filterSelect.innerHTML = '<option value="all">Todas as Contas</option>';
+
+            if (currentUser === 'combined') {
+                ['user1', 'user2'].forEach(user => {
+                    financialData[user].accounts.forEach(account => {
+                        const option = document.createElement('option');
+                        option.value = account.id;
+                        option.textContent = `${account.name} (Usuário ${user === 'user1' ? '1' : '2'})`;
+                        filterSelect.appendChild(option);
+                    });
+                });
+            } else {
+                financialData[currentUser].accounts.forEach(account => {
+                    const option = document.createElement('option');
+                    option.value = account.id;
+                    option.textContent = account.name;
+                    filterSelect.appendChild(option);
+                });
+            }
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('financialChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Receitas',
+                        data: [],
+                        backgroundColor: 'rgba(34, 197, 94, 0.8)',
+                        borderColor: 'rgba(34, 197, 94, 1)',
+                        borderWidth: 1
+                    }, {
+                        label: 'Despesas',
+                        data: [],
+                        backgroundColor: 'rgba(239, 68, 68, 0.8)',
+                        borderColor: 'rgba(239, 68, 68, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return 'R$ ' + value.toLocaleString('pt-BR');
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart() {
+            const last6Months = [];
+            const incomeData = [];
+            const expenseData = [];
+
+            // Generate last 6 months
+            for (let i = 5; i >= 0; i--) {
+                const date = new Date();
+                date.setMonth(date.getMonth() - i);
+                last6Months.push({
+                    month: date.getMonth(),
+                    year: date.getFullYear(),
+                    label: date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
+                });
+            }
+
+            // Calculate data for each month
+            last6Months.forEach(monthData => {
+                let monthIncome = 0;
+                let monthExpense = 0;
+
+                if (currentUser === 'combined') {
+                    ['user1', 'user2'].forEach(user => {
+                        financialData[user].transactions.forEach(transaction => {
+                            const transactionDate = new Date(transaction.date);
+                            if (transactionDate.getMonth() === monthData.month && transactionDate.getFullYear() === monthData.year) {
+                                if (transaction.type === 'income') {
+                                    monthIncome += transaction.amount;
+                                } else {
+                                    monthExpense += Math.abs(transaction.amount);
+                                }
+                            }
+                        });
+                    });
+                } else {
+                    financialData[currentUser].transactions.forEach(transaction => {
+                        const transactionDate = new Date(transaction.date);
+                        if (transactionDate.getMonth() === monthData.month && transactionDate.getFullYear() === monthData.year) {
+                            if (transaction.type === 'income') {
+                                monthIncome += transaction.amount;
+                            } else {
+                                monthExpense += Math.abs(transaction.amount);
+                            }
+                        }
+                    });
+                }
+
+                incomeData.push(monthIncome);
+                expenseData.push(monthExpense);
+            });
+
+            chart.data.labels = last6Months.map(m => m.label);
+            chart.data.datasets[0].data = incomeData;
+            chart.data.datasets[1].data = expenseData;
+            chart.update();
+        }
+
+        function updateFixedBillsList() {
+            const fixedBillsList = document.getElementById('fixedBillsList');
+            fixedBillsList.innerHTML = '';
+
+            if (currentUser === 'combined') {
+                fixedBillsList.innerHTML = '<p class="text-gray-500 text-center text-sm">Selecione um usuário específico para ver as despesas fixas.</p>';
+                return;
+            }
+
+            const allFixedBills = [];
+
+            // Add recurring bills
+            financialData[currentUser].recurringBills.forEach(bill => {
+                if (bill.active) {
+                    allFixedBills.push({
+                        ...bill,
+                        type: 'recurring',
+                        amount: bill.amount
+                    });
+                }
+            });
+
+            // Add active installments
+            financialData[currentUser].installments.forEach(installment => {
+                if (installment.active && installment.remainingInstallments > 0) {
+                    allFixedBills.push({
+                        ...installment,
+                        type: 'installment',
+                        amount: installment.installmentAmount,
+                        description: `${installment.description} (${installment.remainingInstallments}/${installment.totalInstallments})`
+                    });
+                }
+            });
+
+            if (allFixedBills.length === 0) {
+                fixedBillsList.innerHTML = '<p class="text-gray-500 text-center text-sm">Nenhuma despesa fixa cadastrada.</p>';
+                return;
+            }
+
+            // Sort by day
+            allFixedBills.sort((a, b) => a.day - b.day);
+
+            allFixedBills.forEach(bill => {
+                const billElement = document.createElement('div');
+                billElement.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg';
+                
+                const dayColor = bill.day === 10 ? 'text-orange-600' : 'text-purple-600';
+                const typeIcon = bill.type === 'recurring' ? '🔄' : '📊';
+                const accountName = financialData[currentUser].accounts.find(acc => acc.id === bill.accountId)?.name || 'Conta Desconhecida';
+
+                billElement.innerHTML = `
+                    <div class="flex items-center space-x-3 flex-1">
+                        <span class="text-lg">${typeIcon}</span>
+                        <div class="flex-1">
+                            <p class="font-medium text-gray-900 text-sm cursor-pointer hover:text-blue-600 transition-colors" title="Clique para editar">${bill.description}</p>
+                            <p class="text-xs text-gray-500">${accountName} • ${bill.category}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <div class="text-right">
+                            <p class="font-semibold text-red-600 text-sm">${formatCurrency(bill.amount)}</p>
+                            <p class="text-xs ${dayColor}">Dia ${bill.day}</p>
+                        </div>
+                        <button class="text-red-500 hover:text-red-700 text-xs p-1 rounded hover:bg-red-50 transition-colors" title="Excluir">
+                            🗑️
+                        </button>
+                    </div>
+                `;
+                
+                // Add event listeners after creating the element
+                const nameElement = billElement.querySelector('p[title="Clique para editar"]');
+                const deleteButton = billElement.querySelector('button[title="Excluir"]');
+                
+                nameElement.addEventListener('click', () => editFixedBillName(bill.id, bill.type));
+                deleteButton.addEventListener('click', () => deleteFixedBill(bill.id, bill.type));
+                
+                fixedBillsList.appendChild(billElement);
+            });
+        }
+
+        // ===== UTILITY FUNCTIONS =====
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('pt-BR', {
+                style: 'currency',
+                currency: 'BRL'
+            }).format(amount);
+        }
+
+        function formatDate(dateString) {
+            return new Date(dateString).toLocaleDateString('pt-BR');
+        }
+
+        function getAccountTypeName(type) {
+            const types = {
+                checking: 'Conta Corrente',
+                savings: 'Poupança',
+                credit: 'Cartão de Crédito',
+                investment: 'Investimento'
+            };
+            return types[type] || type;
+        }
+
+        // ===== EDIT/DELETE FUNCTIONS =====
+        async function editAccountName(accountId) {
+            const account = financialData[currentUser].accounts.find(acc => acc.id === accountId);
+            if (!account) return;
+
+            const newName = prompt('Digite o novo nome da conta:', account.name);
+            if (newName && newName.trim() && newName.trim() !== account.name) {
+                account.name = newName.trim();
+                
+                // Update in Firebase if online
+                if (firebaseManager.isOnline && account.firebaseId) {
+                    await firebaseManager.updateData('accounts', account.firebaseId, { name: account.name });
+                }
+                
+                updateUI();
+            }
+        }
+
+        async function deleteAccount(accountId) {
+            const account = financialData[currentUser].accounts.find(acc => acc.id === accountId);
+            if (!account) return;
+
+            // Check if account has transactions
+            const hasTransactions = financialData[currentUser].transactions.some(t => t.accountId === accountId);
+            const hasRecurringBills = financialData[currentUser].recurringBills.some(b => b.accountId === accountId);
+            const hasInstallments = financialData[currentUser].installments.some(i => i.accountId === accountId);
+
+            if (hasTransactions || hasRecurringBills || hasInstallments) {
+                if (!confirm(`A conta "${account.name}" possui transações, despesas fixas ou parcelamentos vinculados. Tem certeza que deseja excluí-la? Isso também removerá todos os dados relacionados.`)) {
+                    return;
+                }
+                
+                // Remove related data
+                financialData[currentUser].transactions = financialData[currentUser].transactions.filter(t => t.accountId !== accountId);
+                financialData[currentUser].recurringBills = financialData[currentUser].recurringBills.filter(b => b.accountId !== accountId);
+                financialData[currentUser].installments = financialData[currentUser].installments.filter(i => i.accountId !== accountId);
+            } else {
+                if (!confirm(`Tem certeza que deseja excluir a conta "${account.name}"?`)) {
+                    return;
+                }
+            }
+
+            // Delete from Firebase if online
+            if (firebaseManager.isOnline && account.firebaseId) {
+                await firebaseManager.deleteData('accounts', account.firebaseId);
+            }
+
+            // Remove account
+            financialData[currentUser].accounts = financialData[currentUser].accounts.filter(acc => acc.id !== accountId);
+            updateUI();
+        }
+
+        async function editFixedBillName(billId, billType) {
+            let bill;
+            if (billType === 'recurring') {
+                bill = financialData[currentUser].recurringBills.find(b => b.id === billId);
+            } else {
+                bill = financialData[currentUser].installments.find(i => i.id === billId);
+            }
+            
+            if (!bill) return;
+
+            const currentName = billType === 'installment' ? bill.description : bill.description;
+            const newName = prompt('Digite o novo nome:', currentName);
+            
+            if (newName && newName.trim() && newName.trim() !== currentName) {
+                bill.description = newName.trim();
+                
+                // Update in Firebase if online
+                if (firebaseManager.isOnline && bill.firebaseId) {
+                    const collection = billType === 'recurring' ? 'recurringBills' : 'installments';
+                    await firebaseManager.updateData(collection, bill.firebaseId, { description: bill.description });
+                }
+                
+                updateUI();
+            }
+        }
+
+        async function deleteFixedBill(billId, billType) {
+            let bill;
+            let billArray;
+            
+            if (billType === 'recurring') {
+                bill = financialData[currentUser].recurringBills.find(b => b.id === billId);
+                billArray = financialData[currentUser].recurringBills;
+            } else {
+                bill = financialData[currentUser].installments.find(i => i.id === billId);
+                billArray = financialData[currentUser].installments;
+            }
+            
+            if (!bill) return;
+
+            const billTypeName = billType === 'recurring' ? 'despesa fixa' : 'parcelamento';
+            if (!confirm(`Tem certeza que deseja excluir a ${billTypeName} "${bill.description}"?`)) {
+                return;
+            }
+
+            // Delete from Firebase if online
+            if (firebaseManager.isOnline && bill.firebaseId) {
+                const collection = billType === 'recurring' ? 'recurringBills' : 'installments';
+                await firebaseManager.deleteData(collection, bill.firebaseId);
+            }
+
+            if (billType === 'recurring') {
+                financialData[currentUser].recurringBills = financialData[currentUser].recurringBills.filter(b => b.id !== billId);
+            } else {
+                financialData[currentUser].installments = financialData[currentUser].installments.filter(i => i.id !== billId);
+            }
+            
+            updateUI();
+        }
+
+        // ===== TRANSACTION CREATION FUNCTIONS =====
+        async function createRecurringTransaction(recurringBill) {
+            const today = new Date();
+            const currentMonth = today.getMonth();
+            const currentYear = today.getFullYear();
+            
+            // Create transaction date for the specified day of current month
+            const transactionDate = new Date(currentYear, currentMonth, recurringBill.day);
+            
+            // Only create if the date hasn't passed yet or if it's the current day
+            if (transactionDate >= today || transactionDate.getDate() === today.getDate()) {
+                const newTransaction = {
+                    id: Date.now() + Math.random(), // Ensure unique ID
+                    description: `${recurringBill.description} (Despesa Fixa)`,
+                    amount: -Math.abs(recurringBill.amount), // Always negative for expenses
+                    type: 'expense',
+                    accountId: recurringBill.accountId,
+                    category: recurringBill.category,
+                    date: transactionDate.toISOString().split('T')[0]
+                };
+
+                // Save to Firebase if online
+                if (firebaseManager.isOnline) {
+                    const firebaseId = await firebaseManager.saveData('transactions', newTransaction);
+                    if (firebaseId) {
+                        newTransaction.firebaseId = firebaseId;
+                    }
+                }
+
+                financialData[currentUser].transactions.push(newTransaction);
+                
+                // Update account balance
+                const account = financialData[currentUser].accounts.find(acc => acc.id === recurringBill.accountId);
+                if (account) {
+                    account.balance -= Math.abs(recurringBill.amount);
+                    
+                    // Update account in Firebase if online
+                    if (firebaseManager.isOnline && account.firebaseId) {
+                        await firebaseManager.updateData('accounts', account.firebaseId, { balance: account.balance });
+                    }
+                }
+            }
+        }
+
+        async function createInstallmentTransactions(installment) {
+            const startDate = new Date(installment.startDate);
+            const today = new Date();
+            
+            // Calculate how many installments should have been paid by now
+            let installmentsToPay = 0;
+            let currentDate = new Date(startDate);
+            
+            while (currentDate <= today && installmentsToPay < installment.totalInstallments) {
+                installmentsToPay++;
+                currentDate.setMonth(currentDate.getMonth() + 1);
+            }
+            
+            // Create transactions for installments that should be paid
+            for (let i = 0; i < installmentsToPay; i++) {
+                const paymentDate = new Date(startDate);
+                paymentDate.setMonth(paymentDate.getMonth() + i);
+                
+                const newTransaction = {
+                    id: Date.now() + Math.random() + i, // Ensure unique ID
+                    description: `${installment.description} (${i + 1}/${installment.totalInstallments})`,
+                    amount: -Math.abs(installment.installmentAmount), // Always negative for expenses
+                    type: 'expense',
+                    accountId: installment.accountId,
+                    category: installment.category,
+                    date: paymentDate.toISOString().split('T')[0]
+                };
+
+                // Save to Firebase if online
+                if (firebaseManager.isOnline) {
+                    const firebaseId = await firebaseManager.saveData('transactions', newTransaction);
+                    if (firebaseId) {
+                        newTransaction.firebaseId = firebaseId;
+                    }
+                }
+
+                financialData[currentUser].transactions.push(newTransaction);
+                
+                // Update account balance
+                const account = financialData[currentUser].accounts.find(acc => acc.id === installment.accountId);
+                if (account) {
+                    account.balance -= Math.abs(installment.installmentAmount);
+                    
+                    // Update account in Firebase if online
+                    if (firebaseManager.isOnline && account.firebaseId) {
+                        await firebaseManager.updateData('accounts', account.firebaseId, { balance: account.balance });
+                    }
+                }
+            }
+            
+            // Update remaining installments
+            installment.remainingInstallments = installment.totalInstallments - installmentsToPay;
+            if (installment.remainingInstallments <= 0) {
+                installment.active = false;
+            }
+            
+            // Update installment in Firebase if online
+            if (firebaseManager.isOnline && installment.firebaseId) {
+                await firebaseManager.updateData('installments', installment.firebaseId, {
+                    remainingInstallments: installment.remainingInstallments,
+                    active: installment.active
+                });
+            }
+        }
+
+        // ===== BILLS DETAIL MODAL =====
+        function showBillsDetail(day) {
+            if (currentUser === 'combined') {
+                alert('Selecione um usuário específico para ver os detalhes das contas.');
+                return;
+            }
+
+            const modal = document.getElementById('billsDetailModal');
+            const title = document.getElementById('billsDetailTitle');
+            const content = document.getElementById('billsDetailContent');
+            const empty = document.getElementById('billsDetailEmpty');
+            const total = document.getElementById('billsDetailTotal');
+
+            title.textContent = `Extrato - Contas do Dia ${day}`;
+            content.innerHTML = '';
+            
+            const bills = [];
+            let totalAmount = 0;
+
+            // Get recurring bills for this day
+            financialData[currentUser].recurringBills.forEach(bill => {
+                if (bill.active && bill.day === day) {
+                    const accountName = financialData[currentUser].accounts.find(acc => acc.id === bill.accountId)?.name || 'Conta Desconhecida';
+                    bills.push({
+                        type: 'recurring',
+                        description: bill.description,
+                        amount: bill.amount,
+                        category: bill.category,
+                        accountName: accountName,
+                        icon: '🔄'
+                    });
+                    totalAmount += bill.amount;
+                }
+            });
+
+            // Get installments for this day
+            financialData[currentUser].installments.forEach(installment => {
+                if (installment.active && installment.remainingInstallments > 0 && installment.day === day) {
+                    const accountName = financialData[currentUser].accounts.find(acc => acc.id === installment.accountId)?.name || 'Conta Desconhecida';
+                    bills.push({
+                        type: 'installment',
+                        description: `${installment.description} (${installment.remainingInstallments}/${installment.totalInstallments})`,
+                        amount: installment.installmentAmount,
+                        category: installment.category,
+                        accountName: accountName,
+                        icon: '📊'
+                    });
+                    totalAmount += installment.installmentAmount;
+                }
+            });
+
+            if (bills.length === 0) {
+                content.classList.add('hidden');
+                empty.classList.remove('hidden');
+                total.textContent = 'R$ 0,00';
+            } else {
+                content.classList.remove('hidden');
+                empty.classList.add('hidden');
+                
+                bills.forEach(bill => {
+                    const billElement = document.createElement('div');
+                    billElement.className = 'bg-gray-50 rounded-lg p-4 border border-gray-200';
+                    
+                    const dayColor = day === 10 ? 'text-orange-600' : 'text-purple-600';
+                    const bgColor = day === 10 ? 'bg-orange-50 border-orange-200' : 'bg-purple-50 border-purple-200';
+                    
+                    billElement.className = `${bgColor} rounded-lg p-4 border`;
+                    
+                    billElement.innerHTML = `
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-3 flex-1">
+                                <span class="text-2xl">${bill.icon}</span>
+                                <div class="flex-1">
+                                    <h4 class="font-semibold text-gray-900">${bill.description}</h4>
+                                    <div class="flex items-center space-x-4 mt-1">
+                                        <span class="text-sm text-gray-600">
+                                            <span class="font-medium">Conta:</span> ${bill.accountName}
+                                        </span>
+                                        <span class="text-sm text-gray-600">
+                                            <span class="font-medium">Categoria:</span> ${bill.category}
+                                        </span>
+                                    </div>
+                                    <div class="flex items-center space-x-2 mt-2">
+                                        <span class="text-xs ${dayColor} bg-white px-2 py-1 rounded-full border">
+                                            Vencimento: Dia ${day}
+                                        </span>
+                                        <span class="text-xs ${bill.type === 'recurring' ? 'text-orange-600 bg-orange-100' : 'text-purple-600 bg-purple-100'} px-2 py-1 rounded-full">
+                                            ${bill.type === 'recurring' ? 'Despesa Fixa' : 'Parcelamento'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="text-right ml-4">
+                                <p class="text-xl font-bold text-red-600">${formatCurrency(bill.amount)}</p>
+                                <p class="text-sm text-gray-500">por mês</p>
+                            </div>
+                        </div>
+                    `;
+                    
+                    content.appendChild(billElement);
+                });
+                
+                total.textContent = formatCurrency(totalAmount);
+            }
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function hideBillsDetailModal() {
+            const modal = document.getElementById('billsDetailModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        // ===== INITIALIZE APP =====
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'97238e642175d917',t:'MTc1NTcxMDM3Mi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
