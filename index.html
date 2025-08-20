@@ -81,13 +81,22 @@
         /* Firebase status indicator */
         .firebase-status {
             position: fixed;
-            top: 20px;
-            right: 20px;
+            bottom: 20px;
+            left: 20px;
             z-index: 1000;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        
+        @media (max-width: 768px) {
+            .firebase-status {
+                bottom: 15px;
+                left: 15px;
+                width: 10px;
+                height: 10px;
+            }
         }
         .firebase-online {
             background-color: #10b981;
@@ -101,9 +110,7 @@
 </head>
 <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
     <!-- Firebase Status Indicator -->
-    <div id="firebaseStatus" class="firebase-status firebase-offline">
-        <span id="firebaseStatusText">🔄 Conectando...</span>
-    </div>
+    <div id="firebaseStatus" class="firebase-status firebase-offline"></div>
 
     <!-- Header -->
     <header class="bg-white shadow-lg border-b border-gray-200">
@@ -583,14 +590,13 @@
 
             updateStatus(online, message) {
                 const statusElement = document.getElementById('firebaseStatus');
-                const statusText = document.getElementById('firebaseStatusText');
                 
                 if (online) {
                     statusElement.className = 'firebase-status firebase-online';
-                    statusText.textContent = `🟢 ${message}`;
+                    statusElement.title = message;
                 } else {
                     statusElement.className = 'firebase-status firebase-offline';
-                    statusText.textContent = `🟡 ${message}`;
+                    statusElement.title = message;
                 }
             }
 
@@ -2091,7 +2097,5 @@
         // ===== INITIALIZE APP =====
         document.addEventListener('DOMContentLoaded', init);
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'97242b6c65ae1d32',t:'MTc1NTcxNjgwNC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'97244e871413f574',t:'MTc1NTcxODI0Mi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
-
-
