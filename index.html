@@ -44,6 +44,7 @@
             };
             
             console.log('✅ Firebase inicializado com sucesso!');
+            console.log('🔍 Módulos disponíveis:', !!window.firebaseApp, !!window.firebaseDb, !!window.firebaseAuth);
             
             // Inicializar autenticação imediatamente
             window.initFirebaseAuth();
@@ -51,6 +52,7 @@
         } catch (error) {
             console.error('❌ Erro ao inicializar Firebase:', error);
             firebaseEnabled = false;
+            window.firebaseEnabled = false;
         }
         
         window.firebaseEnabled = firebaseEnabled;
@@ -522,8 +524,9 @@
             }
 
             async initializeAuth() {
-                if (!window.firebaseEnabled) {
-                    console.log('⚠️ Firebase não habilitado');
+                // Check if Firebase modules are available instead of firebaseEnabled flag
+                if (!window.firebaseApp || !window.firebaseDb || !window.firebaseAuth) {
+                    console.log('⚠️ Firebase não disponível - módulos não carregados');
                     this.updateStatus(false, 'Firebase não configurado - usando dados locais');
                     initializeEmptyData();
                     updateUI();
@@ -1554,6 +1557,12 @@
         }
 
         function updateChart() {
+            // Check if chart exists before updating
+            if (!chart) {
+                console.log('⚠️ Gráfico não inicializado ainda');
+                return;
+            }
+
             const last6Months = [];
             const incomeData = [];
             const expenseData = [];
@@ -2049,7 +2058,38 @@
         }
 
         // ===== INITIALIZE APP =====
+        function init() {
+            console.log('🚀 Inicializando aplicação...');
+            console.log('🔍 Estado inicial dos dados:', financialData);
+            console.log('🌐 Firebase habilitado:', window.firebaseEnabled);
+            console.log('📍 URL atual:', window.location.href);
+            console.log('🕒 Timestamp de inicialização:', new Date().toISOString());
+            
+            setupEventListeners();
+            
+            // Set today's date as default
+            document.getElementById('transactionDate').value = new Date().toISOString().split('T')[0];
+            
+            // Clear any existing data first
+            console.log('🧹 Limpando dados existentes...');
+            financialData = {
+                user1: { accounts: [], transactions: [], recurringBills: [], installments: [] },
+                user2: { accounts: [], transactions: [], recurringBills: [], installments: [] }
+            };
+            console.log('✅ Dados limpos:', financialData);
+            
+            // Inicializar Firebase se disponível, senão usar dados locais
+            if (window.firebaseEnabled) {
+                console.log('🔥 Firebase disponível, aguardando inicialização...');
+                // Firebase será inicializado via window.initFirebaseAuth()
+            } else {
+                console.log('📱 Modo offline - carregando dados locais');
+                firebaseManager.initializeAuth(); // Vai carregar dados locais
+            }
+        }
+
+        // ===== INITIALIZE APP =====
         document.addEventListener('DOMContentLoaded', init);
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9724175d8067a47d',t:'MTc1NTcxNTk4My4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'97242b6c65ae1d32',t:'MTc1NTcxNjgwNC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
