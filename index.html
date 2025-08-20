@@ -624,7 +624,10 @@
 
             // Load data from Firebase
             async loadData(collection, userId = null) {
-                if (!this.isOnline) return [];
+                if (!this.isOnline) {
+                    console.log(`⚠️ Firebase offline - retornando array vazio para ${collection}`);
+                    return [];
+                }
 
                 try {
                     const { getDocs, collection: fbCollection, query, where } = window.firebaseModules;
@@ -633,19 +636,22 @@
                         where('userId', '==', userId || currentUser)
                     );
                     
+                    console.log(`🔍 Consultando ${collection} para usuário:`, userId || currentUser);
                     const querySnapshot = await getDocs(q);
                     const data = [];
                     querySnapshot.forEach((doc) => {
-                        data.push({
-                            id: doc.id,
+                        const docData = {
+                            firebaseId: doc.id, // Use firebaseId instead of id to avoid conflicts
                             ...doc.data()
-                        });
+                        };
+                        data.push(docData);
+                        console.log(`📄 Documento ${collection}:`, doc.id, docData);
                     });
                     
-                    console.log(`✅ Dados carregados de ${collection}:`, data.length, 'itens');
+                    console.log(`✅ Dados carregados de ${collection}:`, data.length, 'itens para usuário', userId || currentUser);
                     return data;
                 } catch (error) {
-                    console.error(`Erro ao carregar ${collection}:`, error);
+                    console.error(`❌ Erro ao carregar ${collection}:`, error);
                     return [];
                 }
             }
@@ -777,18 +783,25 @@
                         firebaseManager.loadData('installments', user)
                     ]);
 
-                    financialData[user] = {
-                        accounts: accounts || [],
-                        transactions: transactions || [],
-                        recurringBills: recurringBills || [],
-                        installments: installments || []
-                    };
+                    // Only update if we actually got data, preserve existing data otherwise
+                    if (accounts !== null) {
+                        financialData[user].accounts = accounts || [];
+                    }
+                    if (transactions !== null) {
+                        financialData[user].transactions = transactions || [];
+                    }
+                    if (recurringBills !== null) {
+                        financialData[user].recurringBills = recurringBills || [];
+                    }
+                    if (installments !== null) {
+                        financialData[user].installments = installments || [];
+                    }
                     
                     console.log(`📊 Dados carregados para ${user}:`, {
-                        contas: accounts?.length || 0,
-                        transações: transactions?.length || 0,
-                        despesasFixas: recurringBills?.length || 0,
-                        parcelamentos: installments?.length || 0
+                        contas: financialData[user].accounts?.length || 0,
+                        transações: financialData[user].transactions?.length || 0,
+                        despesasFixas: financialData[user].recurringBills?.length || 0,
+                        parcelamentos: financialData[user].installments?.length || 0
                     });
                 }
                 
@@ -800,7 +813,7 @@
                 
             } catch (error) {
                 console.error('❌ Erro ao carregar dados do Firebase:', error);
-                console.log('🔄 Mantendo dados vazios devido ao erro');
+                console.log('🔄 Mantendo dados existentes devido ao erro');
                 updateUI();
                 initChart();
             }
@@ -1730,53 +1743,150 @@
         // ===== EDIT/DELETE FUNCTIONS =====
         async function editAccountName(accountId) {
             const account = financialData[currentUser].accounts.find(acc => acc.id === accountId);
-            if (!account) return;
+            if (!account) {
+                console.error('❌ Conta não encontrada para edição:', accountId);
+                return;
+            }
 
             const newName = prompt('Digite o novo nome da conta:', account.name);
             if (newName && newName.trim() && newName.trim() !== account.name) {
+                console.log('✏️ Editando nome da conta:', account.name, '->', newName.trim());
+                
+                const oldName = account.name;
                 account.name = newName.trim();
                 
-                // Update in Firebase if online
-                if (firebaseManager.isOnline && account.firebaseId) {
-                    await firebaseManager.updateData('accounts', account.firebaseId, { name: account.name });
+                try {
+                    // Update in Firebase if online
+                    if (firebaseManager.isOnline && account.firebaseId) {
+                        console.log('🔥 Atualizando conta no Firebase:', account.firebaseId);
+                        const success = await firebaseManager.updateData('accounts', account.firebaseId, { 
+                            name: account.name 
+                        });
+                        
+                        if (!success) {
+                            console.error('❌ Falha ao atualizar no Firebase, revertendo...');
+                            account.name = oldName;
+                            alert('Erro ao salvar alterações. Tente novamente.');
+                            return;
+                        }
+                        console.log('✅ Conta atualizada no Firebase com sucesso');
+                    }
+                    
+                    console.log('✅ Nome da conta alterado com sucesso');
+                    updateUI();
+                    
+                } catch (error) {
+                    console.error('❌ Erro ao editar conta:', error);
+                    account.name = oldName; // Revert changes
+                    alert('Erro ao salvar alterações. Tente novamente.');
                 }
-                
-                updateUI();
             }
         }
 
         async function deleteAccount(accountId) {
             const account = financialData[currentUser].accounts.find(acc => acc.id === accountId);
-            if (!account) return;
+            if (!account) {
+                console.error('❌ Conta não encontrada para exclusão:', accountId);
+                return;
+            }
+
+            console.log('🗑️ Tentando excluir conta:', account.name, 'ID:', accountId);
 
             // Check if account has transactions
             const hasTransactions = financialData[currentUser].transactions.some(t => t.accountId === accountId);
             const hasRecurringBills = financialData[currentUser].recurringBills.some(b => b.accountId === accountId);
             const hasInstallments = financialData[currentUser].installments.some(i => i.accountId === accountId);
 
+            console.log('🔍 Verificando dependências:', {
+                transações: hasTransactions,
+                despesasFixas: hasRecurringBills,
+                parcelamentos: hasInstallments
+            });
+
             if (hasTransactions || hasRecurringBills || hasInstallments) {
                 if (!confirm(`A conta "${account.name}" possui transações, despesas fixas ou parcelamentos vinculados. Tem certeza que deseja excluí-la? Isso também removerá todos os dados relacionados.`)) {
                     return;
                 }
                 
-                // Remove related data
+                console.log('🧹 Removendo dados relacionados...');
+                
+                // Get related data to delete from Firebase
+                const relatedTransactions = financialData[currentUser].transactions.filter(t => t.accountId === accountId);
+                const relatedRecurringBills = financialData[currentUser].recurringBills.filter(b => b.accountId === accountId);
+                const relatedInstallments = financialData[currentUser].installments.filter(i => i.accountId === accountId);
+                
+                // Delete related data from Firebase if online
+                if (firebaseManager.isOnline) {
+                    console.log('🔥 Removendo dados relacionados do Firebase...');
+                    
+                    // Delete related transactions
+                    for (const transaction of relatedTransactions) {
+                        if (transaction.firebaseId) {
+                            await firebaseManager.deleteData('transactions', transaction.firebaseId);
+                        }
+                    }
+                    
+                    // Delete related recurring bills
+                    for (const bill of relatedRecurringBills) {
+                        if (bill.firebaseId) {
+                            await firebaseManager.deleteData('recurringBills', bill.firebaseId);
+                        }
+                    }
+                    
+                    // Delete related installments
+                    for (const installment of relatedInstallments) {
+                        if (installment.firebaseId) {
+                            await firebaseManager.deleteData('installments', installment.firebaseId);
+                        }
+                    }
+                }
+                
+                // Remove related data from local storage
                 financialData[currentUser].transactions = financialData[currentUser].transactions.filter(t => t.accountId !== accountId);
                 financialData[currentUser].recurringBills = financialData[currentUser].recurringBills.filter(b => b.accountId !== accountId);
                 financialData[currentUser].installments = financialData[currentUser].installments.filter(i => i.accountId !== accountId);
+                
+                console.log('✅ Dados relacionados removidos');
             } else {
                 if (!confirm(`Tem certeza que deseja excluir a conta "${account.name}"?`)) {
                     return;
                 }
             }
 
-            // Delete from Firebase if online
-            if (firebaseManager.isOnline && account.firebaseId) {
-                await firebaseManager.deleteData('accounts', account.firebaseId);
-            }
+            try {
+                // Delete from Firebase if online
+                if (firebaseManager.isOnline && account.firebaseId) {
+                    console.log('🔥 Removendo conta do Firebase:', account.firebaseId);
+                    const success = await firebaseManager.deleteData('accounts', account.firebaseId);
+                    
+                    if (!success) {
+                        console.error('❌ Falha ao remover do Firebase');
+                        alert('Erro ao excluir conta. Tente novamente.');
+                        return;
+                    }
+                    console.log('✅ Conta removida do Firebase com sucesso');
+                }
 
-            // Remove account
-            financialData[currentUser].accounts = financialData[currentUser].accounts.filter(acc => acc.id !== accountId);
-            updateUI();
+                // Remove account from local data
+                const initialLength = financialData[currentUser].accounts.length;
+                financialData[currentUser].accounts = financialData[currentUser].accounts.filter(acc => acc.id !== accountId);
+                const finalLength = financialData[currentUser].accounts.length;
+                
+                console.log('📊 Contas antes:', initialLength, 'depois:', finalLength);
+                
+                if (initialLength === finalLength) {
+                    console.error('❌ Conta não foi removida dos dados locais');
+                    alert('Erro ao excluir conta. Tente novamente.');
+                    return;
+                }
+                
+                console.log('✅ Conta excluída com sucesso');
+                updateUI();
+                
+            } catch (error) {
+                console.error('❌ Erro ao excluir conta:', error);
+                alert('Erro ao excluir conta. Tente novamente.');
+            }
         }
 
         async function editFixedBillName(billId, billType) {
@@ -2097,5 +2207,5 @@
         // ===== INITIALIZE APP =====
         document.addEventListener('DOMContentLoaded', init);
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'97244e871413f574',t:'MTc1NTcxODI0Mi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9724970941c7f1f1',t:'MTc1NTcyMTIxMi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
