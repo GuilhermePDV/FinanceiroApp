@@ -28,6 +28,7 @@
         let firebaseEnabled = false;
         
         try {
+            console.log('🔄 Inicializando Firebase...');
             app = initializeApp(firebaseConfig);
             db = getFirestore(app);
             auth = getAuth(app);
@@ -43,8 +44,12 @@
             };
             
             console.log('✅ Firebase inicializado com sucesso!');
+            
+            // Inicializar autenticação imediatamente
+            window.initFirebaseAuth();
+            
         } catch (error) {
-            console.log('⚠️ Firebase não configurado, usando dados locais:', error.message);
+            console.error('❌ Erro ao inicializar Firebase:', error);
             firebaseEnabled = false;
         }
         
@@ -513,23 +518,32 @@
             constructor() {
                 this.isOnline = false;
                 this.userId = null;
-                this.initializeAuth();
+                this.authInitialized = false;
             }
 
             async initializeAuth() {
                 if (!window.firebaseEnabled) {
+                    console.log('⚠️ Firebase não habilitado');
                     this.updateStatus(false, 'Firebase não configurado - usando dados locais');
+                    loadSampleData();
+                    updateUI();
+                    initChart();
+                    return;
+                }
+
+                if (this.authInitialized) {
+                    console.log('🔄 Auth já inicializado');
                     return;
                 }
 
                 try {
+                    console.log('🔄 Iniciando autenticação Firebase...');
                     const { signInAnonymously, onAuthStateChanged } = window.firebaseModules;
                     
-                    // Sign in anonymously
-                    await signInAnonymously(window.firebaseAuth);
+                    this.authInitialized = true;
                     
-                    // Listen for auth state changes
-                    onAuthStateChanged(window.firebaseAuth, (user) => {
+                    // Listen for auth state changes first
+                    onAuthStateChanged(window.firebaseAuth, async (user) => {
                         if (user) {
                             this.userId = user.uid;
                             this.isOnline = true;
@@ -537,17 +551,27 @@
                             console.log('✅ Usuário autenticado:', user.uid);
                             
                             // Load data after authentication
-                            setTimeout(() => {
-                                loadAllData();
-                            }, 500);
+                            await loadAllData();
                         } else {
                             this.isOnline = false;
                             this.updateStatus(false, 'Desconectado');
+                            console.log('⚠️ Usuário não autenticado');
                         }
                     });
+                    
+                    // Sign in anonymously
+                    console.log('🔐 Fazendo login anônimo...');
+                    await signInAnonymously(window.firebaseAuth);
+                    
                 } catch (error) {
-                    console.error('Erro na autenticação:', error);
+                    console.error('❌ Erro na autenticação Firebase:', error);
                     this.updateStatus(false, 'Erro de conexão - usando dados locais');
+                    this.authInitialized = false;
+                    
+                    // Fallback to local data
+                    loadSampleData();
+                    updateUI();
+                    initChart();
                 }
             }
 
@@ -652,6 +676,12 @@
 
         // Initialize Firebase Manager
         const firebaseManager = new FirebaseManager();
+        
+        // Função global para inicializar auth (chamada pelo módulo Firebase)
+        window.initFirebaseAuth = function() {
+            console.log('🚀 Iniciando autenticação via window.initFirebaseAuth');
+            firebaseManager.initializeAuth();
+        };
 
         // ===== DATA STRUCTURE =====
         // Data structure to store all financial data (fallback for offline mode)
@@ -682,17 +712,25 @@
 
         // ===== DATA LOADING FUNCTIONS =====
         async function loadAllData() {
+            console.log('📋 Carregando todos os dados...');
             if (firebaseManager.isOnline) {
                 await loadDataFromFirebase();
             } else {
-                loadSampleData();
+                console.log('📱 Modo offline - dados vazios');
+                // Inicializar com dados vazios
+                financialData = {
+                    user1: { accounts: [], transactions: [], recurringBills: [], installments: [] },
+                    user2: { accounts: [], transactions: [], recurringBills: [], installments: [] }
+                };
+                updateUI();
+                initChart();
             }
-            updateUI();
-            initChart();
         }
 
         async function loadDataFromFirebase() {
             try {
+                console.log('📥 Carregando dados do Firebase...');
+                
                 // Load data for both users
                 for (const user of ['user1', 'user2']) {
                     const [accounts, transactions, recurringBills, installments] = await Promise.all([
@@ -708,12 +746,24 @@
                         recurringBills: recurringBills || [],
                         installments: installments || []
                     };
+                    
+                    console.log(`📊 Dados do ${user}:`, {
+                        contas: accounts?.length || 0,
+                        transações: transactions?.length || 0,
+                        despesasFixas: recurringBills?.length || 0,
+                        parcelamentos: installments?.length || 0
+                    });
                 }
                 
                 console.log('✅ Todos os dados carregados do Firebase');
+                updateUI();
+                initChart();
+                
             } catch (error) {
-                console.error('Erro ao carregar dados do Firebase:', error);
-                loadSampleData(); // Fallback to sample data
+                console.error('❌ Erro ao carregar dados do Firebase:', error);
+                // Não carregar dados de exemplo automaticamente
+                updateUI();
+                initChart();
             }
         }
 
@@ -763,17 +813,20 @@
 
         // ===== INITIALIZATION =====
         function init() {
+            console.log('🚀 Inicializando aplicação...');
             setupEventListeners();
             
             // Set today's date as default
             document.getElementById('transactionDate').value = new Date().toISOString().split('T')[0];
             
-            // Wait for Firebase to initialize
-            setTimeout(() => {
-                if (!firebaseManager.isOnline) {
-                    loadAllData();
-                }
-            }, 1000);
+            // Inicializar Firebase se disponível, senão usar dados locais
+            if (window.firebaseEnabled) {
+                console.log('🔥 Firebase disponível, aguardando inicialização...');
+                // Firebase será inicializado via window.initFirebaseAuth()
+            } else {
+                console.log('📱 Modo offline - carregando dados locais');
+                firebaseManager.initializeAuth(); // Vai carregar dados locais
+            }
         }
 
         // ===== EVENT LISTENERS =====
@@ -1977,5 +2030,6 @@
         // ===== INITIALIZE APP =====
         document.addEventListener('DOMContentLoaded', init);
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9723ef5e56c1f256',t:'MTc1NTcxNDM0NC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9723ff9fb6a24b4d',t:'MTc1NTcxNTAxMC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
+
