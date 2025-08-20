@@ -525,7 +525,7 @@
                 if (!window.firebaseEnabled) {
                     console.log('⚠️ Firebase não habilitado');
                     this.updateStatus(false, 'Firebase não configurado - usando dados locais');
-                    loadSampleData();
+                    initializeEmptyData();
                     updateUI();
                     initChart();
                     return;
@@ -556,6 +556,9 @@
                             this.isOnline = false;
                             this.updateStatus(false, 'Desconectado');
                             console.log('⚠️ Usuário não autenticado');
+                            initializeEmptyData();
+                            updateUI();
+                            initChart();
                         }
                     });
                     
@@ -568,8 +571,8 @@
                     this.updateStatus(false, 'Erro de conexão - usando dados locais');
                     this.authInitialized = false;
                     
-                    // Fallback to local data
-                    loadSampleData();
+                    // Fallback to empty data
+                    initializeEmptyData();
                     updateUI();
                     initChart();
                 }
@@ -700,6 +703,26 @@
             }
         };
 
+        // Add cache detection
+        console.log('🔍 DIAGNÓSTICO DE CACHE:');
+        console.log('📅 Data/hora atual:', new Date().toISOString());
+        console.log('🌐 User Agent:', navigator.userAgent);
+        console.log('💾 LocalStorage disponível:', typeof(Storage) !== "undefined");
+        console.log('🔄 Service Worker ativo:', 'serviceWorker' in navigator);
+        
+        // Check if data is being cached somewhere
+        if (typeof(Storage) !== "undefined") {
+            console.log('📦 Dados no localStorage:', Object.keys(localStorage));
+            console.log('📦 Dados no sessionStorage:', Object.keys(sessionStorage));
+        }
+        
+        // Force clear any potential cached data
+        if (typeof(Storage) !== "undefined") {
+            localStorage.clear();
+            sessionStorage.clear();
+            console.log('🧹 Cache local limpo');
+        }
+
         let currentUser = 'user1';
         let currentTransactionType = 'income';
         let chart = null;
@@ -713,15 +736,18 @@
         // ===== DATA LOADING FUNCTIONS =====
         async function loadAllData() {
             console.log('📋 Carregando todos os dados...');
+            
+            // Sempre inicializar com estrutura vazia primeiro
+            financialData = {
+                user1: { accounts: [], transactions: [], recurringBills: [], installments: [] },
+                user2: { accounts: [], transactions: [], recurringBills: [], installments: [] }
+            };
+            
             if (firebaseManager.isOnline) {
+                console.log('🔥 Firebase online - carregando dados da nuvem...');
                 await loadDataFromFirebase();
             } else {
-                console.log('📱 Modo offline - dados vazios');
-                // Inicializar com dados vazios
-                financialData = {
-                    user1: { accounts: [], transactions: [], recurringBills: [], installments: [] },
-                    user2: { accounts: [], transactions: [], recurringBills: [], installments: [] }
-                };
+                console.log('📱 Modo offline - iniciando com dados vazios');
                 updateUI();
                 initChart();
             }
@@ -733,6 +759,8 @@
                 
                 // Load data for both users
                 for (const user of ['user1', 'user2']) {
+                    console.log(`🔍 Carregando dados para ${user}...`);
+                    
                     const [accounts, transactions, recurringBills, installments] = await Promise.all([
                         firebaseManager.loadData('accounts', user),
                         firebaseManager.loadData('transactions', user),
@@ -747,7 +775,7 @@
                         installments: installments || []
                     };
                     
-                    console.log(`📊 Dados do ${user}:`, {
+                    console.log(`📊 Dados carregados para ${user}:`, {
                         contas: accounts?.length || 0,
                         transações: transactions?.length || 0,
                         despesasFixas: recurringBills?.length || 0,
@@ -755,69 +783,52 @@
                     });
                 }
                 
-                console.log('✅ Todos os dados carregados do Firebase');
+                console.log('✅ Todos os dados carregados do Firebase com sucesso!');
+                console.log('📋 Estrutura final dos dados:', financialData);
+                
                 updateUI();
                 initChart();
                 
             } catch (error) {
                 console.error('❌ Erro ao carregar dados do Firebase:', error);
-                // Não carregar dados de exemplo automaticamente
+                console.log('🔄 Mantendo dados vazios devido ao erro');
                 updateUI();
                 initChart();
             }
         }
 
-        // Load some sample data for demonstration (offline mode)
-        function loadSampleData() {
-            console.log('📝 Carregando dados de exemplo (modo offline)');
+        // Initialize empty data structure (no sample data)
+        function initializeEmptyData() {
+            console.log('📝 Inicializando estrutura de dados vazia');
             
-            // User 1 sample data
-            financialData.user1.accounts = [
-                { id: 1, name: 'Conta Corrente', type: 'checking', balance: 2500.00 },
-                { id: 2, name: 'Cartão Nubank', type: 'credit', balance: -850.00 },
-                { id: 3, name: 'Poupança', type: 'savings', balance: 5000.00 }
-            ];
-
-            financialData.user1.transactions = [
-                { id: 1, description: 'Salário', amount: 4500.00, type: 'income', accountId: 1, category: 'Salário', date: '2024-01-15' },
-                { id: 2, description: 'Supermercado', amount: -320.50, type: 'expense', accountId: 2, category: 'Alimentação', date: '2024-01-14' },
-                { id: 3, description: 'Freelance', amount: 800.00, type: 'income', accountId: 1, category: 'Freelance', date: '2024-01-13' }
-            ];
-
-            financialData.user1.recurringBills = [
-                { id: 1, description: 'Aluguel', amount: 1200.00, accountId: 1, day: 10, category: 'Moradia', active: true },
-                { id: 2, description: 'Internet', amount: 89.90, accountId: 2, day: 20, category: 'Outros', active: true }
-            ];
-
-            financialData.user1.installments = [
-                { id: 1, description: 'Notebook Dell', totalAmount: 2400.00, installmentAmount: 200.00, totalInstallments: 12, remainingInstallments: 8, accountId: 2, day: 10, category: 'Eletrônicos', startDate: '2023-06-10', active: true }
-            ];
-
-            // User 2 sample data
-            financialData.user2.accounts = [
-                { id: 1, name: 'Conta Principal', type: 'checking', balance: 1800.00 },
-                { id: 2, name: 'Cartão Itaú', type: 'credit', balance: -450.00 }
-            ];
-
-            financialData.user2.transactions = [
-                { id: 1, description: 'Salário', amount: 3200.00, type: 'income', accountId: 1, category: 'Salário', date: '2024-01-15' },
-                { id: 2, description: 'Combustível', amount: -180.00, type: 'expense', accountId: 2, category: 'Transporte', date: '2024-01-14' }
-            ];
-
-            financialData.user2.recurringBills = [
-                { id: 1, description: 'Plano de Saúde', amount: 350.00, accountId: 1, day: 10, category: 'Saúde', active: true }
-            ];
-
-            financialData.user2.installments = [];
+            financialData = {
+                user1: { accounts: [], transactions: [], recurringBills: [], installments: [] },
+                user2: { accounts: [], transactions: [], recurringBills: [], installments: [] }
+            };
+            
+            console.log('✅ Estrutura de dados inicializada:', financialData);
         }
 
         // ===== INITIALIZATION =====
         function init() {
             console.log('🚀 Inicializando aplicação...');
+            console.log('🔍 Estado inicial dos dados:', financialData);
+            console.log('🌐 Firebase habilitado:', window.firebaseEnabled);
+            console.log('📍 URL atual:', window.location.href);
+            console.log('🕒 Timestamp de inicialização:', new Date().toISOString());
+            
             setupEventListeners();
             
             // Set today's date as default
             document.getElementById('transactionDate').value = new Date().toISOString().split('T')[0];
+            
+            // Clear any existing data first
+            console.log('🧹 Limpando dados existentes...');
+            financialData = {
+                user1: { accounts: [], transactions: [], recurringBills: [], installments: [] },
+                user2: { accounts: [], transactions: [], recurringBills: [], installments: [] }
+            };
+            console.log('✅ Dados limpos:', financialData);
             
             // Inicializar Firebase se disponível, senão usar dados locais
             if (window.firebaseEnabled) {
@@ -1229,12 +1240,22 @@
 
         // ===== UI UPDATE FUNCTIONS =====
         function updateUI() {
+            console.log('🔄 ATUALIZANDO UI - Estado atual dos dados:');
+            console.log('👤 Usuário atual:', currentUser);
+            console.log('📊 Dados completos:', JSON.stringify(financialData, null, 2));
+            console.log('🏦 Contas do usuário atual:', financialData[currentUser]?.accounts?.length || 0);
+            console.log('💰 Transações do usuário atual:', financialData[currentUser]?.transactions?.length || 0);
+            console.log('🔄 Despesas fixas do usuário atual:', financialData[currentUser]?.recurringBills?.length || 0);
+            console.log('📊 Parcelamentos do usuário atual:', financialData[currentUser]?.installments?.length || 0);
+            
             updateDashboardCards();
             updateAccountsList();
             updateTransactionsList();
             updateChart();
             updateFilterDropdown();
             updateFixedBillsList();
+            
+            console.log('✅ UI atualizada');
         }
 
         function updateDashboardCards() {
@@ -2030,6 +2051,5 @@
         // ===== INITIALIZE APP =====
         document.addEventListener('DOMContentLoaded', init);
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9723ff9fb6a24b4d',t:'MTc1NTcxNTAxMC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9724175d8067a47d',t:'MTc1NTcxNTk4My4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
-
